@@ -78,3 +78,22 @@ cleanup:
     - bash /opt/bluegreen/scripts/retire_old.sh
   only:
     - tags
+
+
+
+# === Manual switch jobs ===
+switch_to_green:
+  stage: switch
+  tags: [bluegreen]
+  when: manual
+  script:
+    - bash /opt/bluegreen/scripts/switch_traffic.sh green
+  only: [branches, tags]
+
+switch_to_blue:
+  stage: switch
+  tags: [bluegreen]
+  when: manual
+  script:
+    - bash /opt/bluegreen/scripts/switch_traffic.sh blue
+  only: [branches, tags]
