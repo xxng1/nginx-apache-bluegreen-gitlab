@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+  app-green:
+    image: httpd:2.4-alpine
+    container_name: app-green
+    restart: always
+    networks: [appnet]
+    volumes:
+      - ./green/www:/usr/local/apache2/htdocs/:ro
+networks:
+  appnet:
+    external: true

@@ -1,0 +1,80 @@
+stages:
+  - bootstrap
+  - deploy
+  - verify
+  - switch
+  - cleanup
+
+.defaults: &defaults
+  tags: [bluegreen]        # 러너에 설정한 태그와 일치해야 함
+  before_script:
+    - set -euo pipefail
+    - docker --version
+    - docker compose version
+
+# 0) 부팅스트랩: 링크 보정 + 서로 다른 compose 프로젝트명으로 기동
+bootstrap:
+  stage: bootstrap
+  <<: *defaults
+  script:
+    # (1) app_active.conf 없으면 BLUE로 초기화 (상대링크!)
+    - cd /opt/bluegreen/nginx/conf.d && [ -e app_active.conf ] || ln -s app_blue.conf app_active.conf
+
+    # (2) 잔재 정리 (있어도/없어도 통과)
+    - docker rm -f edge-nginx app-blue app-green 2>/dev/null || true
+    - docker network create appnet || true
+
+    # (3) Compose v2로 올리기 — 서로 다른 프로젝트명(-p)으로 올려 orphan 제거와 충돌 방지
+    - docker compose -p bg-blue  -f /opt/bluegreen/app/docker-compose.blue.yml   pull
+    - docker compose -p bg-blue  -f /opt/bluegreen/app/docker-compose.blue.yml   up -d
+    - docker compose -p bg-green -f /opt/bluegreen/app/docker-compose.green.yml  pull
+    - docker compose -p bg-green -f /opt/bluegreen/app/docker-compose.green.yml  up -d
+    - docker compose               -f /opt/bluegreen/nginx/docker-compose.nginx.yml up -d
+
+    # (4) Nginx 설정 점검/리로드 (실패 시 전체 설정 덤프 출력 후 실패)
+    - docker exec edge-nginx nginx -t || (docker exec edge-nginx nginx -T; false)
+    - docker exec edge-nginx nginx -s reload
+  only:
+    - tags
+
+# 1) 비활성 슬롯에 배포 (우리가 만든 스크립트가 알아서 반대 슬롯에 올림)
+deploy:
+  stage: deploy
+  <<: *defaults
+  script:
+    - bash /opt/bluegreen/scripts/deploy_green.sh
+  only:
+    - tags
+
+# 2) 검증
+verify:
+  stage: verify
+  <<: *defaults
+  script:
+    - curl -fsS http://localhost:8081/healthz >/dev/null
+    - curl -fsS http://localhost:8081/_green/  >/dev/null
+  only:
+    - tags
+
+# 3) 트래픽 전환 (활성 링크를 읽고 반대편으로 스위치)
+switch:
+  stage: switch
+  <<: *defaults
+  script:
+    - ACTIVE_LINK="$(readlink -f /opt/bluegreen/nginx/conf.d/app_active.conf || true)"
+    - if echo "$ACTIVE_LINK" | grep -q app_blue.conf; then TARGET=green; else TARGET=blue; fi
+    - bash /opt/bluegreen/scripts/switch_traffic.sh "$TARGET"
+    - curl -fsS http://localhost:8081/ >/dev/null
+  only:
+    - tags
+
+# 4) 이전 슬롯 정리 (지연 실행)
+cleanup:
+  stage: cleanup
+  <<: *defaults
+  when: delayed
+  start_in: "30 minutes"
+  script:
+    - bash /opt/bluegreen/scripts/retire_old.sh
+  only:
+    - tags
