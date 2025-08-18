@@ -1,7 +1,9 @@
 # nginx-apache-bluegreen-gitlab
 
 Edge Nginx(8081) 앞단에서 Blue/Green(app-blue/app-green) 두 슬롯을 상시 구동하고,
-**심볼릭 링크 교체 + `nginx -s reload`**로 즉시 전환하는 무중단 배포 템플릿.
+
+심볼릭 링크 교체 + `nginx -s reload`로 즉시 전환하는 무중단 배포 템플릿.
+
 
 ## CI/CD (GitLab + Runner)
 
